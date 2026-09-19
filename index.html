@@ -147,14 +147,44 @@
 </header>
 
 <div class="tabs">
-  <button class="tab active" data-panel="sweep">Breakout Sweep</button>
+  <button class="tab active" data-panel="live">Live Status</button>
+  <button class="tab" data-panel="sweep">Breakout Sweep</button>
   <button class="tab" data-panel="sweep-mr">Mean-Reversion Sweep</button>
   <button class="tab" data-panel="oos">Out-of-Sample</button>
   <button class="tab" data-panel="trades">Trade Log &amp; Equity Curve</button>
 </div>
 
 <main>
-  <div class="panel active" id="panel-sweep">
+  <!-- Live status -->
+  <div class="panel active" id="panel-live">
+    <div id="live-settings-box" class="upload-box" style="cursor: default; text-align: left;">
+      <div style="margin-bottom: 10px; color: var(--text);">Connect to your bot's backend:</div>
+      <input type="text" id="backend-url-input" placeholder="https://your-backend.onrender.com"
+             style="width: 100%; max-width: 400px; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);">
+      <br>
+      <input type="password" id="backend-key-input" placeholder="API key"
+             style="width: 100%; max-width: 400px; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);">
+      <br>
+      <button id="live-connect-btn" style="padding: 8px 20px; border-radius: 6px; border: none; background: var(--accent); color: white; cursor: pointer;">Connect</button>
+      <span id="live-status-indicator" style="margin-left: 10px; font-size: 0.85rem; color: var(--text-muted);"></span>
+    </div>
+
+    <div id="live-halt-banner" style="display:none; padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600;"></div>
+
+    <div id="live-stats" class="stats-row"></div>
+
+    <div style="margin-top: 20px;">
+      <h3 style="font-size: 1rem; color: var(--text-muted); margin-bottom: 8px;">Open Positions</h3>
+      <div id="live-positions"><div class="empty-msg">Not connected yet.</div></div>
+    </div>
+
+    <div style="margin-top: 20px;">
+      <h3 style="font-size: 1rem; color: var(--text-muted); margin-bottom: 8px;">Recent Closed Trades</h3>
+      <div id="live-trades"><div class="empty-msg">Not connected yet.</div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-sweep">
     <div class="upload-box" id="upload-sweep">
       Drop <code>sweep_results.csv</code> here, or click to choose a file
       <input type="file" accept=".csv" id="file-sweep">
@@ -369,6 +399,113 @@ function renderEquityChart(rows) {
     },
   });
 }
+// ---------- Live Status tab ----------
+let liveRefreshTimer = null;
+
+function loadLiveSettings() {
+  const url = localStorage.getItem("fxbot_backend_url") || "";
+  const key = localStorage.getItem("fxbot_backend_key") || "";
+  document.getElementById("backend-url-input").value = url;
+  document.getElementById("backend-key-input").value = key;
+  if (url && key) startLiveRefresh(url, key);
+}
+
+document.getElementById("live-connect-btn").addEventListener("click", () => {
+  const url = document.getElementById("backend-url-input").value.trim().replace(/\/$/, "");
+  const key = document.getElementById("backend-key-input").value.trim();
+  if (!url || !key) return;
+  localStorage.setItem("fxbot_backend_url", url);
+  localStorage.setItem("fxbot_backend_key", key);
+  startLiveRefresh(url, key);
+});
+
+function startLiveRefresh(url, key) {
+  if (liveRefreshTimer) clearInterval(liveRefreshTimer);
+  fetchLiveStatus(url, key);
+  liveRefreshTimer = setInterval(() => fetchLiveStatus(url, key), 15000);
+}
+
+async function fetchLiveStatus(url, key) {
+  const indicator = document.getElementById("live-status-indicator");
+  try {
+    const res = await fetch(`${url}/status`, { headers: { "X-API-Key": key } });
+    if (!res.ok) {
+      indicator.textContent = res.status === 401 ? "Wrong API key" : `Error (HTTP ${res.status})`;
+      indicator.style.color = "var(--red)";
+      return;
+    }
+    const data = await res.json();
+    indicator.textContent = data.last_updated
+      ? `Connected \u00b7 updated ${new Date(data.last_updated * 1000).toLocaleTimeString()}`
+      : "Connected \u00b7 waiting for first update from bot";
+    indicator.style.color = "var(--green)";
+    renderLiveStatus(data);
+  } catch (e) {
+    indicator.textContent = "Could not reach backend";
+    indicator.style.color = "var(--red)";
+  }
+}
+
+function renderLiveStatus(data) {
+  // Halt banner
+  const banner = document.getElementById("live-halt-banner");
+  if (data.halted_permanently) {
+    banner.style.display = "block";
+    banner.style.background = "color-mix(in srgb, var(--red) 20%, var(--surface))";
+    banner.style.color = "var(--red)";
+    banner.textContent = `\ud83d\uded1 PERMANENTLY HALTED: ${data.permanent_halt_reason || "total drawdown limit hit"} \u2014 manual review required.`;
+  } else if (data.halted_today) {
+    banner.style.display = "block";
+    banner.style.background = "color-mix(in srgb, #eab308 20%, var(--surface))";
+    banner.style.color = "#eab308";
+    banner.textContent = "\u26a0\ufe0f Daily loss limit hit \u2014 no new trades until tomorrow.";
+  } else {
+    banner.style.display = "none";
+  }
+
+  // Stat cards
+  const balance = data.balance ?? 0;
+  const peak = data.peak_balance ?? balance;
+  const ddPct = peak > 0 ? ((balance - peak) / peak * 100) : 0;
+  document.getElementById("live-stats").innerHTML = `
+    <div class="stat-card"><div class="stat-label">Balance</div><div class="stat-value">${balance.toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Peak balance</div><div class="stat-value">${peak.toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Current drawdown</div><div class="stat-value ${ddPct < 0 ? 'neg' : ''}">${ddPct.toFixed(2)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Open positions</div><div class="stat-value">${(data.open_positions || []).length}</div></div>
+  `;
+
+  // Positions table
+  const positions = data.open_positions || [];
+  const posContainer = document.getElementById("live-positions");
+  if (positions.length === 0) {
+    posContainer.innerHTML = '<div class="empty-msg">No open positions.</div>';
+  } else {
+    let html = "<table><thead><tr><th>Symbol</th><th>Direction</th><th>Lots</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead><tbody>";
+    positions.forEach(p => {
+      html += `<tr><td>${p.symbol}</td><td>${p.direction}</td><td>${p.lots}</td><td>${p.entry}</td><td>${p.sl ?? ""}</td><td>${p.tp ?? ""}</td></tr>`;
+    });
+    html += "</tbody></table>";
+    posContainer.innerHTML = html;
+  }
+
+  // Recent trades table
+  const trades = data.recent_trades || [];
+  const tradesContainer = document.getElementById("live-trades");
+  if (trades.length === 0) {
+    tradesContainer.innerHTML = '<div class="empty-msg">No closed trades yet.</div>';
+  } else {
+    let html = "<table><thead><tr><th>Symbol</th><th>PnL</th><th>Exit time</th></tr></thead><tbody>";
+    [...trades].reverse().forEach(t => {
+      const cls = t.pnl > 0 ? "pos" : (t.pnl < 0 ? "neg" : "");
+      html += `<tr><td>${t.symbol}</td><td class="${cls}">${t.pnl.toFixed(2)}</td><td>${t.exit_time}</td></tr>`;
+    });
+    html += "</tbody></table>";
+    tradesContainer.innerHTML = html;
+  }
+}
+
+loadLiveSettings();
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("service-worker.js").catch(err =>
