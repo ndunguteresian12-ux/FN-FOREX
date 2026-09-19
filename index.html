@@ -92,6 +92,24 @@
   }
   .upload-box.dragover { border-color: var(--accent); color: var(--accent); }
   .upload-box input { display: none; }
+  .settings-box {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    background: var(--surface);
+  }
+  .settings-box input {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    padding: 8px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
   .stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
   .stat-card {
     background: var(--surface);
@@ -157,14 +175,11 @@
 <main>
   <!-- Live status -->
   <div class="panel active" id="panel-live">
-    <div id="live-settings-box" class="upload-box" style="cursor: default; text-align: left;">
+    <div id="live-settings-box" class="settings-box">
       <div style="margin-bottom: 10px; color: var(--text);">Connect to your bot's backend:</div>
       <input type="text" id="backend-url-input" placeholder="https://your-backend.onrender.com"
-             style="width: 100%; max-width: 400px; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);">
-      <br>
-      <input type="password" id="backend-key-input" placeholder="API key"
-             style="width: 100%; max-width: 400px; padding: 8px; margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);">
-      <br>
+             value="https://fn-forexbot.onrender.com">
+      <input type="password" id="backend-key-input" placeholder="API key">
       <button id="live-connect-btn" style="padding: 8px 20px; border-radius: 6px; border: none; background: var(--accent); color: white; cursor: pointer;">Connect</button>
       <span id="live-status-indicator" style="margin-left: 10px; font-size: 0.85rem; color: var(--text-muted);"></span>
     </div>
@@ -403,10 +418,10 @@ function renderEquityChart(rows) {
 let liveRefreshTimer = null;
 
 function loadLiveSettings() {
-  const url = localStorage.getItem("fxbot_backend_url") || "";
-  const key = localStorage.getItem("fxbot_backend_key") || "";
-  document.getElementById("backend-url-input").value = url;
-  document.getElementById("backend-key-input").value = key;
+  const url = localStorage.getItem("fxbot_backend_url");
+  const key = localStorage.getItem("fxbot_backend_key");
+  if (url) document.getElementById("backend-url-input").value = url;
+  if (key) document.getElementById("backend-key-input").value = key;
   if (url && key) startLiveRefresh(url, key);
 }
 
