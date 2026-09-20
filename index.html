@@ -184,9 +184,16 @@
       <span id="live-status-indicator" style="margin-left: 10px; font-size: 0.85rem; color: var(--text-muted);"></span>
     </div>
 
+    <div id="market-status-banner" style="padding: 10px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.85rem; display: inline-block;"></div>
+
     <div id="live-halt-banner" style="display:none; padding: 14px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600;"></div>
 
     <div id="live-stats" class="stats-row"></div>
+
+    <div id="live-risk-panel" style="display:none; margin-top: 20px;">
+      <h3 style="font-size: 1rem; color: var(--text-muted); margin-bottom: 8px;">Risk Settings (currently active)</h3>
+      <div id="live-risk-cards" class="stats-row"></div>
+    </div>
 
     <div style="margin-top: 20px;">
       <h3 style="font-size: 1rem; color: var(--text-muted); margin-bottom: 8px;">Open Positions</h3>
@@ -414,6 +421,32 @@ function renderEquityChart(rows) {
     },
   });
 }
+// ---------- Market open/closed (pure client-side, no backend needed) ----------
+function updateMarketStatus() {
+  const now = new Date();
+  const utcDay = now.getUTCDay();   // 0=Sun, 6=Sat
+  const utcHour = now.getUTCHours();
+
+  // Forex market: opens Sunday 22:00 UTC, closes Friday 22:00 UTC
+  const isOpen =
+    (utcDay === 0 && utcHour >= 22) ||
+    (utcDay >= 1 && utcDay <= 4) ||
+    (utcDay === 5 && utcHour < 22);
+
+  const banner = document.getElementById("market-status-banner");
+  if (isOpen) {
+    banner.textContent = "\ud83d\udfe2 Forex market OPEN";
+    banner.style.background = "color-mix(in srgb, var(--green) 15%, var(--surface))";
+    banner.style.color = "var(--green)";
+  } else {
+    banner.textContent = "\ud83d\udd34 Forex market CLOSED (weekend)";
+    banner.style.background = "color-mix(in srgb, var(--red) 15%, var(--surface))";
+    banner.style.color = "var(--red)";
+  }
+}
+updateMarketStatus();
+setInterval(updateMarketStatus, 60000);
+
 // ---------- Live Status tab ----------
 let liveRefreshTimer = null;
 
@@ -482,12 +515,35 @@ function renderLiveStatus(data) {
   const balance = data.balance ?? 0;
   const peak = data.peak_balance ?? balance;
   const ddPct = peak > 0 ? ((balance - peak) / peak * 100) : 0;
+  const totalTrades = data.total_trades ?? 0;
+  const wins = data.wins ?? 0;
+  const winRate = totalTrades > 0 ? (wins / totalTrades * 100) : 0;
+  const dailyPnl = data.daily_pnl ?? 0;
+  const totalPnl = data.total_pnl ?? 0;
+
   document.getElementById("live-stats").innerHTML = `
     <div class="stat-card"><div class="stat-label">Balance</div><div class="stat-value">${balance.toFixed(2)}</div></div>
     <div class="stat-card"><div class="stat-label">Peak balance</div><div class="stat-value">${peak.toFixed(2)}</div></div>
     <div class="stat-card"><div class="stat-label">Current drawdown</div><div class="stat-value ${ddPct < 0 ? 'neg' : ''}">${ddPct.toFixed(2)}%</div></div>
     <div class="stat-card"><div class="stat-label">Open positions</div><div class="stat-value">${(data.open_positions || []).length}</div></div>
+    <div class="stat-card"><div class="stat-label">Total trades</div><div class="stat-value">${totalTrades}</div></div>
+    <div class="stat-card"><div class="stat-label">Win rate</div><div class="stat-value">${winRate.toFixed(1)}%</div></div>
+    <div class="stat-card"><div class="stat-label">Today's P&amp;L</div><div class="stat-value ${dailyPnl > 0 ? 'pos' : (dailyPnl < 0 ? 'neg' : '')}">${dailyPnl.toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">All-time P&amp;L</div><div class="stat-value ${totalPnl > 0 ? 'pos' : (totalPnl < 0 ? 'neg' : '')}">${totalPnl.toFixed(2)}</div></div>
   `;
+
+  // Risk settings panel
+  const rs = data.risk_settings || {};
+  if (rs.risk_per_trade_pct !== undefined) {
+    document.getElementById("live-risk-panel").style.display = "block";
+    document.getElementById("live-risk-cards").innerHTML = `
+      <div class="stat-card"><div class="stat-label">Risk per trade</div><div class="stat-value">${rs.risk_per_trade_pct}%</div></div>
+      <div class="stat-card"><div class="stat-label">Daily loss limit</div><div class="stat-value">${rs.max_daily_loss_pct}%</div></div>
+      <div class="stat-card"><div class="stat-label">Total drawdown limit</div><div class="stat-value">${rs.max_total_drawdown_pct}%</div></div>
+      <div class="stat-card"><div class="stat-label">Max open positions</div><div class="stat-value">${rs.max_open_positions}</div></div>
+      <div class="stat-card"><div class="stat-label">Max correlated</div><div class="stat-value">${rs.max_correlated_positions}</div></div>
+    `;
+  }
 
   // Positions table
   const positions = data.open_positions || [];
